@@ -1,0 +1,37 @@
+---
+title: "Test"
+author: "Jiaying Wu"
+date: "31/08/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+ped <- read_csv("data/melb_walk.csv")
+```
+
+Something text 
+
+
+```{r}
+state_lib <- filter(ped, Sensor == "State Library")
+state_lib
+```
+
+```{r}
+ggplot(data = state_lib, aes(x = Time, y = Count, group = Time)) +
+  geom_boxplot()
+```
+
+```{r}
+ped_mc_sl <- filter(ped, Sensor %in% c("Melbourne Central", "State Library"))
+ped_mc_sl
+```

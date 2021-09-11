@@ -1,0 +1,101 @@
+---
+title: "Test - 4.3 Communicating the message"
+author: "Jiaying Wu"
+date: "11/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE, 
+                      message = FALSE,
+                      fig.align = "center",
+                      fig.height = 6,
+                      fig.width = 8)
+```
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(sugrrants)
+library(tsibble)
+library(glue)
+library(timeDate)
+```
+
+```{r}
+elec <- read_csv("https://raw.githubusercontent.com/datascienceprogram/ids_course_data/master/meter_01.csv", skip=1, col_names = c("id", "date",  1:48), col_types =str_c("cc", str_c(rep("d", 48), collapse = ""), str_c(rep("-", 5), collapse = ""))
+                )
+
+elec %>% select(id:`5`) %>% head(3)
+
+
+vic_holidays <- holiday_aus(2017:2019, state = "VIC")
+
+elec <- elec %>% filter(id == 300)
+
+elec <- elec %>%
+  mutate(date = ymd(date)) %>%
+  gather(halfhour, kwh, -id, -date) %>%
+  mutate(halfhour = as.numeric(halfhour) / 2) %>%
+  arrange(date, halfhour) %>%
+  mutate(
+    wday = wday(date, label = TRUE, abbr = TRUE, week_start = 1),
+    month = month(date, label = TRUE, abbr = TRUE),
+    year = year(date),
+    dt = ymd_hm(glue("{date} 12:00"), tz = "Australia/Melbourne") + minutes(60*halfhour)
+  ) %>% 
+  mutate(work = ifelse(wday %in% c("Mon", "Tue", "Wed", "Thu", "Fri"), "workday", "holiday")) %>%
+  mutate(work = ifelse(date %in% vic_holidays$date, "holiday", work))
+elec %>% head(3) 
+
+elec_sum <- elec %>%
+  filter(date < dmy("01022019"), date >= dmy("01122018")) %>%
+  filter(kwh > 0) 
+
+elec_sum
+```
+
+```{r echo=TRUE, tidy=TRUE, fig.width=10}
+p1 <- elec %>%
+  filter(date < dmy("01022019"), date >= dmy("01122018")) %>%
+  ggplot(aes(x = halfhour, y = kwh)) +
+  geom_line(aes(colour = work)) +
+  scale_colour_brewer("work", palette = "Dark2") +
+  facet_calendar(~ date) +
+  xlim(c(0,24)) +
+  theme(legend.position="none")
+p1
+```
+
+```{r}
+library(viridis)
+maxtemp <- read_csv("https://raw.githubusercontent.com/Jiaying-Wu/Run3-Extra/master/extra/maxtemp.csv")
+
+maxtemp <- maxtemp %>%  
+  mutate(date = paste(maxtemp$year, maxtemp$month, maxtemp$day, sep="-")) %>%
+  mutate(date = ymd(date))
+maxtemp_df <- maxtemp %>% filter(year > 2017, month %in% c(12, 1)) 
+elec <- elec %>%   
+  left_join(maxtemp_df, by="date") 
+
+p2 <- elec %>%
+  filter(date < dmy("01022019"), date >= dmy("01122018")) %>%
+  frame_calendar(x = halfhour, y = kwh, date = date, ncol = 4) %>%
+  ggplot(aes(x = .halfhour, y = .kwh, group = date, colour=max_temperature)) +
+  geom_line() +
+  scale_colour_viridis_c("temperature", option="inferno", direction=-1) +
+  theme(legend.position = "bottom")
+prettify(p2)
+```
+
+```{r}
+p3 <- elec %>%
+  filter(year(date) == 2018) %>%
+  group_by(date) %>%
+  summarise(kwh = sum(kwh)) %>%
+  left_join(maxtemp_df, by="date") %>%
+  ggplot(aes(x=max_temperature, y=kwh, text=date)) + geom_point()
+p3
+```
+
