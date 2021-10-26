@@ -1,0 +1,51 @@
+---
+title: "many_model_prediction"
+author: "Jiaying Wu"
+date: "26/10/2021"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(gapminder)
+```
+
+```{r}
+gapminder2 <- gapminder %>% 
+  mutate(year1952 = year-1952) %>% 
+  select(country, year1952, lifeExp, continent)
+
+# create many model
+many_models <- gapminder2 %>%
+  group_by(country, continent) %>% 
+  nest() %>% 
+  mutate(
+    model = purrr::map(data, ~ lm(lifeExp ~ year1952, data = .))
+    ) %>%
+  # remove nest data, only keep the model, don't ungroup data
+  select(-data)
+
+# 1 new data for each model
+new_data_1 <- tibble(year1952 = 10)
+
+# 1 prediction for each model
+many_models_prediction_1 <- many_models %>%
+  mutate(
+    prediction = purrr::map(model, ~ predict(., new_data_1))
+    ) %>%
+  select(-model) %>%
+  unnest() %>%
+  ungroup()
+  
+# n new data for each model
+new_data_n <- tibble(year1952 = 1:10)
+
+# n prediction for each model
+many_models_prediction_n <- many_models %>%
+  mutate(
+    prediction = purrr::map(model, ~ predict(., new_data_n))
+    ) %>%
+  select(-model) %>%
+  unnest() %>%
+  ungroup()
+```

@@ -1,0 +1,44 @@
+---
+title: "test"
+author: "Jiaying Wu"
+date: "26/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+```{r}
+data <- read_excel(path = "data/otp_time_series_master_current_september2021.xlsx", 
+             sheet = "2020-21 OTP") 
+
+sheet_name <- c(as.character(2020:2012))
+
+for(sheet in sheet_name){
+  new_data <- read_excel(path = "data/otp_time_series_master_current_september2021.xlsx", 
+             sheet = sheet)
+  
+  data <- rbind(data, new_data)
+}
+
+data
+```
+
+```{r}
+summary(data)
+```
+
+```{r}
+data %>%
+  group_by(Route) %>%
+  tally()
+```
+
