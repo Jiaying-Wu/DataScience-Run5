@@ -1,0 +1,254 @@
+---
+title: "Interact with Twitter’s APIs using rtweet"
+author: Jiaying Wu
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE, 
+                      fig.width = 6, 
+                      fig.height = 4, 
+                      fig.align = "center")
+```
+
+```{r}
+# load twitter library - the rtweet library is recommended now over twitteR
+library(rtweet)
+# tidyverse!
+library(tidyverse)
+# text mining library
+library(tidytext)
+```
+
+### Twitter developer account
+
+1. Apply a development account from the twitter developer: https://developer.twitter.com/en/portal/petition/use-case 
+
+2. After you created the developer account, `Create Project` from the Twitter Developer Portal Dashboard: https://developer.twitter.com/en/portal/dashboard
+
+3. Go to the `Settings` tab, change the `App perissions` to `Read and write`.
+
+
+### rtweet
+
+The first thing that you need to setup in your code is your authentication. These keys are located in the `Keys and tokens` tap of your project.
+
+`API Key and Secret` of `Consumer Keys` section:
+
+- `app`: App name
+
+- `consumer_key`: API Key
+
+- `consumer_secret`: API Key Secret
+
+`Access Token and Secret` of `Authentication Tokens` section:
+
+- `access_token`: Access Token
+
+- `access_secret`：Access Token Secret
+
+You will need to copy the information your keys and tokens to replace the `Your-App-Name`, `Your-API-Key`, `Your-API-Secret-Key`, `You-Access-Token` and `You-Access-Token-Secret`
+
+```{r echo=FALSE}
+# App name
+app_name <- ""
+
+# API Key
+api_key <- ""
+
+# API Key Secret
+api_secret <- ""
+
+# Access Token
+access_token <- ""
+
+# Access Token Secret
+access_secret <- ""
+```
+
+```{r eval=FALSE}
+# App name (example below is not a real app name)
+app_name <- "Your-App-Name"
+
+## API Key (example below is not a real key)
+api_key <- "Your-API-Key"
+
+# API Key Secret (example below is not a real key)
+api_secret <- "Your-API-Key-Secret"
+
+# Access Token (example below is not a real token)
+access_token <-  "You-Access-Token"
+
+# Access Token Secret (example below is not a real token)
+access_secret <- "You-Access-Token-Secret"
+```
+
+
+```{r}
+# create token named "twitter_token"
+twitter_token <- create_token(
+  app = app_name,
+  consumer_key = api_key,
+  consumer_secret = api_secret,
+  access_token = access_token,
+  access_secret = access_secret)
+```
+
+Finally, you can create a token that authenticates access to tweets, let start exploring the Twitter data!
+
+### Search for Tweets
+
+The `search_tweets()` will get tweets data on statuses identified via search query. But it will only return data from the past 6-9 days.
+
+- q: the query word that you want to look for
+
+- n: the number of tweets that you want returned. You can request up to a maximum of 18,000 tweets.
+
+To see what other arguments you can use with this function, use the R help:
+
+```
+?search_tweets
+```
+
+```{r}
+## search for 500 tweets using the #rstats hashtag
+rstats_tweets <- search_tweets(q = "#rstats", n = 50)
+# view the first 3 rows of the dataframe
+head(rstats_tweets, n = 5)
+```
+
+### Retweets
+
+A retweet is when you or someone else shares someone else tweet so your / their followers can see it. It is similar to sharing in Facebook where you can add a quote or text above the retweet if you want or just share the post. Let’s use the same query that you used above but this time ignore all retweets by setting the `include_rts` argument to `FALSE`. You can get tweet / retweet stats from your dataframe, separately.
+
+```{r}
+# find recent tweets with #rstats but ignore retweets
+rstats_tweets <- search_tweets("#rstats", n = 500, include_rts = FALSE)
+# The frist 6 rows
+head(rstats_tweets)
+```
+
+Next, let’s figure out who is tweeting about `R` using the `#rstats` hashtag.
+
+```{r}
+# get a list of unique usernames
+length(unique(rstats_tweets$screen_name))
+head(unique(rstats_tweets$screen_name))
+```
+
+### Search User
+
+You can also use the `search_users()` function to capture the tweets, it return the data in the same format of `search_tweets`. But it focus on the users, and able to return up to 1000 users matched by user provided search query. The `search_users()` function might able to capture the tweets far waay from 9 days.
+
+```{r}
+# what users are tweeting with #rstats
+rstats_users <- search_users("#rstats", n = 500)
+# The first 6 users
+head(rstats_users)
+```
+
+How many locations of people tweeting R and what are they?
+
+```{r}
+# how many locations are represented
+length(unique(rstats_users$location))
+head(unique(rstats_users$location))
+```
+
+Let us have a look about the top 20 locations, the first row without name is the twits 
+
+```{r}
+rstats_users %>%
+  count(location, sort = TRUE) %>%
+  mutate(location = reorder(location, n)) %>%
+  top_n(20) %>%
+  ggplot(aes(x = location, y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(x = "Location", y = "twitts", title = "The location with most users twitting #rstats")
+```
+
+Use the `ts_plot` function from `rtweet` to plots tweets data as a time series-like data object. The interval of time can divide into "secs", "mins", "hours", "days", "weeks", "months", or "years". Notice: the time zone `tz`	is defaults to "UTC".
+
+```{r}
+rstats_tweets %>%
+  ts_plot("hours", tz = ) +
+  labs(x = "Date and time",
+       y = "Frequency of tweets",
+       title = "Time series of #rstats tweets seach by tweets",
+       subtitle = "Frequency of Twitter statuses calculated in one-hour intervals.") 
+```
+
+We can observed that the tweets query from the `search_users` function have capture the tweets before a few years ago.
+
+```{r}
+rstats_users %>%
+  ts_plot("months") +
+  scale_y_log10() +
+  labs(x = "Month",
+       y = "Frequency of tweets",
+       title = "Time series of #rstats tweets seach by users",
+       subtitle = "Frequency of Twitter statuses calculated in one-month intervals.") 
+```
+
+### Stream tweets
+
+You can also use the `stream_tweets` to collect a live stream of Twitter data. It can returns public statuses via one of the following four methods:
+
+1. Sampling a small random sample of all publicly available tweets
+
+```
+# Randomly sample (approximately 1%) from the live stream of all tweets
+stream_tweets("")
+```
+
+2. Filtering via a search-like query (up to 400 keywords)
+
+```
+# stream tweets mentioning "election" for 30 seconds
+stream_tweets("election", timeout = 30)
+```
+
+3. Tracking via vector of user ids (up to 5000 user_ids)
+
+4. Location via geo coordinates (1-360 degree location boxes)
+
+```
+# Stream all geo-located tweets around Melbourne for 10 seconds, you need to specify the bounding box.
+stream_tweets(c(-37.9, 144.7, -37.6, 145.2), timeout = 10)
+# Or using the Google Maps API to lookup the coordinates
+stream_tweets(lookup_coords("melbourne, aus"), timeout = 10)
+```
+
+### What the most frequent words for tweets in the past 5 seconds
+
+```{r}
+live_tweet <- stream_tweets(timeout = 5)
+head(live_tweet$text)
+```
+
+```{r}
+library(tidytext)
+words <- tibble(sentence = plain_tweets(live_tweet$text)) %>%
+  unnest_tokens(word, sentence)
+
+top10 <- words%>%
+  group_by(word) %>%
+  tally() %>%
+  top_n(10) %>%
+  arrange(-n)
+
+top10
+```
+### The words for tweets in the past 5 seconds
+
+```{r 5_sec_word, fig.width = 10, fig.height = 8}
+library(wordcloud2)
+
+words%>%
+  group_by(word) %>%
+  tally() %>%
+  wordcloud2(size = 2)
+```
