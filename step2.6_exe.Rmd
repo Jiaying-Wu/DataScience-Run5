@@ -1,0 +1,244 @@
+---
+title: "Step 2.6 - Databases using R"
+author: "Jiaying Wu"
+date: "06/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(DBI)
+
+con <- dbConnect(RSQLite::SQLite(), "data/:flights:")
+flights_db <- tbl(con, "flights")
+```
+
+### Work with tidyverse wrangling verbs to access database
+
+```{r}
+df <- flights_db %>%
+  group_by(OP_UNIQUE_CARRIER) %>%
+  tally(sort=TRUE) %>%
+  collect()
+df
+```
+### What’s the smallest, largest and median departure delay for the busiest airport?
+
+```{r}
+df <- flights_db %>%
+  filter(ORIGIN == "ATL") %>%
+  collect()
+
+df %>% summarise(min(DEP_DELAY, na.rm=TRUE), 
+                 max(DEP_DELAY, na.rm=TRUE), 
+                 median(DEP_DELAY, na.rm=TRUE))
+```
+### Make a side-by-side boxplot of the delays for each carrier, at the busiest airport.
+
+```{r}
+library(forcats)
+df %>%
+  mutate(DAY_OF_WEEK = as.factor(DAY_OF_WEEK)) %>%
+  mutate(DepDelay_log = log10(DEP_DELAY+27)) %>%
+  mutate(OP_CARRIER = fct_reorder(as_factor(OP_CARRIER), DepDelay_log, .desc = TRUE, na.rm=TRUE)) %>%
+  ggplot(aes(x=OP_CARRIER, y=DepDelay_log)) + 
+  geom_boxplot() + xlab("carrier") + ylab("Departure delay (log)")
+```
+
+### How many records of the busiest airport have missing values for departure delay?
+
+```{r}
+df %>% count(is.na(DEP_DELAY)) 
+```
+
+### Is there a ghost flight in your month of data?
+
+```{r}
+df <- flights_db %>%
+  select(TAIL_NUM, ORIGIN, DEST, FL_DATE, DEP_TIME) %>%
+  filter(!is.na(DEP_TIME)) %>%
+  filter(!is.na(DEP_TIME)) %>%
+  mutate(DEP_TIME = as.numeric(DEP_TIME)) %>%
+  arrange(TAIL_NUM, FL_DATE, DEP_TIME) %>%
+  collect()
+
+df %>% count(TAIL_NUM, sort=TRUE)
+
+aircraft <- df %>%
+  select(TAIL_NUM) %>%
+  distinct()
+
+for (i in 1:nrow(aircraft)) {
+  d <- df %>% filter(TAIL_NUM == aircraft$TAIL_NUM[i]) 
+  if (nrow(d) > 1) {
+    for (j in 2:nrow(d)) {
+      if (d$ORIGIN[j] != d$DEST[j-1]) {
+        cat(d$TAIL_NUM[j], d$DEST[j-1], d$ORIGIN[j],  "\n")
+      }
+    }
+  }
+  cat(i, "\n")
+}
+```
+
+### Add tables to an existing database
+
+Download the file from: https://www.transtats.bts.gov/DL_SelectFields.asp?gnoyr_VQ=FLL&QO_fu146_anzr=N8vn6v10%20f722146%20gnoyr5
+
+```{r}
+airports <- read_csv("data/654698093_T_MASTER_CORD.csv") %>%
+  select(-...29)
+
+copy_to(dbConnect(RSQLite::SQLite(), "data/airports"), airports, "airports", 
+        temporary = FALSE
+)
+
+dbListTables(con)
+airports_db <- tbl(con, "airports")
+```
+
+### Plot the locations on a map
+
+```{r}
+airport_locations <- airports_db %>%
+  filter(AIRPORT_IS_LATEST == 1, AIRPORT_IS_CLOSED != 1,
+         AIRPORT_COUNTRY_CODE_ISO == "US") %>%
+  select(AIRPORT, DISPLAY_AIRPORT_NAME, LONGITUDE, LATITUDE) %>%
+  collect() 
+
+library(ggmap)
+usa_bbox <- c(-130, # min long
+              20, # min lat
+              -60, # max long
+              50) # max lat
+usa_map <- get_map(location = usa_bbox, source = "stamen")
+
+library(ggthemes)
+# Only continental locations will be considered
+airport_locations <- airport_locations %>%
+  filter(LONGITUDE>usa_bbox[1], LONGITUDE<usa_bbox[3], 
+         LATITUDE>usa_bbox[2], LATITUDE<usa_bbox[4])
+
+ggmap(usa_map) + 
+  geom_point(data=airport_locations, aes(x=LONGITUDE, y=LATITUDE),
+             colour="red", alpha=0.3, size=1) +
+  theme_map()
+```
+
+### Plot all flights
+
+```{r}
+# take a day's worth of flights
+feb1 <- flights_db  %>%
+  filter(DAY_OF_MONTH == 1) %>%
+  collect()
+
+# Remove flights that have a missing origin or dest lat/long
+# because they are outside continental US
+feb1_flights <- feb1 %>% 
+  left_join(airport_locations, by=c("ORIGIN" = "AIRPORT")) %>% 
+  rename(Origin_lon = LONGITUDE, Origin_lat = LATITUDE, 
+         Origin_name = DISPLAY_AIRPORT_NAME) %>%
+  left_join(airport_locations, by=c("DEST" = "AIRPORT")) %>%
+  rename(Dest_lon = LONGITUDE, Dest_lat = LATITUDE, 
+         Dest_name = DISPLAY_AIRPORT_NAME) %>%
+  filter(!is.na(Origin_lon)) %>%
+  filter(!is.na(Dest_lon)) %>%
+  filter(!is.na(DEP_TIME))
+
+ggmap(usa_map) + 
+  geom_segment(data=feb1_flights, 
+           aes(x=Origin_lon, 
+               xend=Dest_lon,
+               y=Origin_lat,
+               yend=Dest_lat), 
+           colour="#9651A0", alpha=0.01) +
+  geom_point(data=feb1_flights, aes(x=Origin_lon, Origin_lat),
+             colour="#746FB2", alpha=0.2, size=0.03) +
+  theme_map()
+```
+
+### Compare carrier flight patterns
+
+```{r}
+feb1_major_carriers <- feb1_flights %>%
+  filter(OP_CARRIER %in% c("WN", "AA")) %>%
+  mutate(OP_CARRIER == fct_drop(OP_CARRIER))
+
+ggmap(usa_map) + 
+  geom_segment(data=feb1_major_carriers, 
+           aes(x=Origin_lon, 
+               xend=Dest_lon,
+               y=Origin_lat,
+               yend=Dest_lat), 
+           colour="#9651A0", alpha=0.02) +
+  geom_point(data=feb1_major_carriers, aes(x=Origin_lon, Origin_lat),
+             colour="#746FB2", alpha=0.2, size=0.03) +
+  facet_wrap(~OP_CARRIER, ncol=1) +
+  theme_map()
+```
+
+### Examine change in patterns over the course of a day
+
+```{r}
+# Time zone matching
+library(lutz)
+library(lubridate)
+feb1_flights <- feb1_flights %>% 
+  mutate(origin_tz = tz_lookup_coords(Origin_lat, 
+                              Origin_lon, warn=FALSE),
+         dest_tz = tz_lookup_coords(Dest_lat, 
+                              Dest_lon, warn=FALSE)) %>%
+  mutate(DateTime = paste0("2020-02-01 ", 
+                           substr(DEP_TIME, 1, 2),":", 
+                           substr(DEP_TIME, 3, 4), ":00"))
+
+# Can't keep datetime with different time zones in the same variable
+feb1_flights <- feb1_flights %>%
+  mutate(
+    DateTime_NY = force_tzs(ymd_hms(DateTime),
+      tzones = origin_tz, tzone_out = "America/New_York"))
+
+# Now break into four time categories
+feb1_flights <- feb1_flights %>% 
+  mutate(TimeOfDay = case_when(
+    hour(DateTime_NY) < 7 ~ "early",
+    between(hour(DateTime_NY), 7, 11) ~ "morning",
+    between(hour(DateTime_NY), 12, 17) ~ "afternoon",
+    hour(DateTime_NY) > 17 ~ "evening")
+  ) %>%
+  mutate(TimeOfDay = factor(TimeOfDay, levels=c("early", "morning", "afternoon", "evening")))
+
+# Track the path of one plane
+ggmap(usa_map) + 
+  geom_point(data=feb1_flights, aes(x=Origin_lon, y=Origin_lat),
+             colour="red", alpha=0.2, size=0.5) +
+  facet_wrap(~TimeOfDay, ncol=2) +
+  theme_map()
+```
+
+### Use the standardised times to follow the path of one plane during the day
+
+```{r}
+N521AE <- feb1_flights %>% 
+  filter(TAIL_NUM == "N521AE") %>%
+  arrange(DateTime_NY)
+
+ggmap(usa_map) + 
+  geom_segment(data=N521AE, aes(x=Origin_lon, y=Origin_lat, 
+                                xend=Dest_lon, yend=Dest_lat),
+               colour="#9651A0", size = 1) +
+  theme_map()
+```
+
+
+
+
+
+
